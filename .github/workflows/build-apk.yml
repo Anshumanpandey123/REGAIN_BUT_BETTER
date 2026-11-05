@@ -32,30 +32,16 @@ jobs:
           mkdir -p app/src/main/res/xml
           mkdir -p app/src/main/res/values
           mkdir -p app/src/main/res/drawable
-          mkdir -p app/src/main/res/mipmap-mdpi
-          mkdir -p app/src/main/res/mipmap-hdpi
-          mkdir -p app/src/main/res/mipmap-xhdpi
-          mkdir -p app/src/main/res/mipmap-xxhdpi
-          mkdir -p app/src/main/res/mipmap-xxxhdpi
 
           cp MainActivity.kt app/src/main/java/com/regain/pro/MainActivity.kt
           cp RegainBlockerService.kt app/src/main/java/com/regain/pro/RegainBlockerService.kt
 
-          # Copy user's gold 'R' logo.png as official app icon across mipmap densities
+          # Copy true PNG mipmap icons & drawable
+          if [ -d res ]; then
+            cp -r res/* app/src/main/res/
+          fi
           if [ -f logo.png ]; then
             cp logo.png app/src/main/res/drawable/logo.png
-            cp logo.png app/src/main/res/drawable/ic_launcher.png
-            cp logo.png app/src/main/res/mipmap-mdpi/ic_launcher.png
-            cp logo.png app/src/main/res/mipmap-hdpi/ic_launcher.png
-            cp logo.png app/src/main/res/mipmap-xhdpi/ic_launcher.png
-            cp logo.png app/src/main/res/mipmap-xxhdpi/ic_launcher.png
-            cp logo.png app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
-
-            cp logo.png app/src/main/res/mipmap-mdpi/ic_launcher_round.png
-            cp logo.png app/src/main/res/mipmap-hdpi/ic_launcher_round.png
-            cp logo.png app/src/main/res/mipmap-xhdpi/ic_launcher_round.png
-            cp logo.png app/src/main/res/mipmap-xxhdpi/ic_launcher_round.png
-            cp logo.png app/src/main/res/mipmap-xxxhdpi/ic_launcher_round.png
           fi
 
           cat << 'EOF' > gradle.properties
