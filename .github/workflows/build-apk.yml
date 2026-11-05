@@ -31,9 +31,32 @@ jobs:
           mkdir -p app/src/main/java/com/regain/pro
           mkdir -p app/src/main/res/xml
           mkdir -p app/src/main/res/values
+          mkdir -p app/src/main/res/drawable
+          mkdir -p app/src/main/res/mipmap-mdpi
+          mkdir -p app/src/main/res/mipmap-hdpi
+          mkdir -p app/src/main/res/mipmap-xhdpi
+          mkdir -p app/src/main/res/mipmap-xxhdpi
+          mkdir -p app/src/main/res/mipmap-xxxhdpi
 
           cp MainActivity.kt app/src/main/java/com/regain/pro/MainActivity.kt
           cp RegainBlockerService.kt app/src/main/java/com/regain/pro/RegainBlockerService.kt
+
+          # Copy user's gold 'R' logo.png as official app icon across mipmap densities
+          if [ -f logo.png ]; then
+            cp logo.png app/src/main/res/drawable/logo.png
+            cp logo.png app/src/main/res/drawable/ic_launcher.png
+            cp logo.png app/src/main/res/mipmap-mdpi/ic_launcher.png
+            cp logo.png app/src/main/res/mipmap-hdpi/ic_launcher.png
+            cp logo.png app/src/main/res/mipmap-xhdpi/ic_launcher.png
+            cp logo.png app/src/main/res/mipmap-xxhdpi/ic_launcher.png
+            cp logo.png app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
+
+            cp logo.png app/src/main/res/mipmap-mdpi/ic_launcher_round.png
+            cp logo.png app/src/main/res/mipmap-hdpi/ic_launcher_round.png
+            cp logo.png app/src/main/res/mipmap-xhdpi/ic_launcher_round.png
+            cp logo.png app/src/main/res/mipmap-xxhdpi/ic_launcher_round.png
+            cp logo.png app/src/main/res/mipmap-xxxhdpi/ic_launcher_round.png
+          fi
 
           cat << 'EOF' > gradle.properties
           android.useAndroidX=true
@@ -83,8 +106,8 @@ jobs:
                   applicationId "com.regain.pro"
                   minSdk 24
                   targetSdk 34
-                  versionCode 2
-                  versionName "1.0.1-PRO"
+                  versionCode 3
+                  versionName "1.0.2-PRO"
               }
 
               signingConfigs {
@@ -126,7 +149,7 @@ jobs:
           }
           EOF
 
-          # Accessibility Service Configuration strictly sandboxed to social/feed apps
+          # Accessibility Service Configuration targeting distracting apps and browsers
           cat << 'EOF' > app/src/main/res/xml/accessibility_service_config.xml
           <?xml version="1.0" encoding="utf-8"?>
           <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
@@ -135,8 +158,8 @@ jobs:
               android:accessibilityFlags="flagDefault"
               android:canRetrieveWindowContent="true"
               android:description="@string/accessibility_service_description"
-              android:notificationTimeout="200"
-              android:packageNames="com.google.android.youtube,com.instagram.android,com.facebook.katana,com.facebook.orca,com.snapchat.android,com.zhiliaoapp.musically,com.ss.android.ugc.trill,com.twitter.android,com.reddit.frontpage,com.android.chrome,com.android.settings,com.google.android.packageinstaller" />
+              android:notificationTimeout="100"
+              android:packageNames="com.google.android.youtube,com.instagram.android,com.facebook.katana,com.facebook.orca,com.facebook.lite,com.snapchat.android,com.zhiliaoapp.musically,com.ss.android.ugc.trill,com.twitter.android,com.twitter.android.lite,com.reddit.frontpage,com.android.chrome,org.mozilla.firefox,com.opera.browser,com.brave.browser,com.microsoft.emmx,com.netflix.mediaclient,com.amazon.avod.thirdpartyclient,tv.twitch.android.app,com.discord,com.pinterest,com.whatsapp,com.android.settings,com.google.android.packageinstaller" />
           EOF
 
           cat << 'EOF' > app/src/main/res/values/strings.xml
@@ -176,9 +199,9 @@ jobs:
 
               <application
                   android:allowBackup="false"
-                  android:icon="@android:drawable/ic_dialog_info"
+                  android:icon="@mipmap/ic_launcher"
                   android:label="@string/app_name"
-                  android:roundIcon="@android:drawable/ic_dialog_info"
+                  android:roundIcon="@mipmap/ic_launcher_round"
                   android:supportsRtl="true"
                   android:theme="@style/Theme.RegainPro">
 
@@ -219,28 +242,30 @@ jobs:
         run: gradle assembleRelease --stacktrace
 
       - name: Rename Release APK
-        run: cp app/build/outputs/apk/release/app-release.apk app/build/outputs/apk/release/Regain-Pro-v1.0.1.apk
+        run: cp app/build/outputs/apk/release/app-release.apk app/build/outputs/apk/release/Regain-Pro-v1.0.2.apk
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: Regain-Personal-Pro-APK
-          path: app/build/outputs/apk/release/Regain-Pro-v1.0.1.apk
+          path: app/build/outputs/apk/release/Regain-Pro-v1.0.2.apk
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.0.1
-          name: "Regain Pro v1.0.1 — Clean Production Signed Release"
+          tag_name: v1.0.2
+          name: "Regain Pro v1.0.2 — Full UI Overhaul & Strict App Restrictor"
           body: |
-            ## 🛡️ Regain Pro v1.0.1 (Google Play Protect Compliant Release)
+            ## 🦁 Regain Pro v1.0.2 Release
 
-            This release resolves Google Play Protect heuristic warnings triggered by broad accessibility configurations:
-            - **Removed `SYSTEM_ALERT_WINDOW` permission**: Eliminates the "screen overlay/financial threat" false-positive.
-            - **Strictly Sandboxed Accessibility Service**: Bound `android:packageNames` exclusively to social/distracting apps (YouTube, Instagram, Facebook, Snapchat, TikTok, Twitter/X, Reddit).
-            - **Removed Invasive Accessibility Flags**: Removed `flagRetrieveInteractiveWindows` and `flagIncludeNotImportantViews`.
-            - **Hard Financial App Firewall**: Built-in programmatic block ignoring any banking, UPI, wallet, or credential apps.
-            - **Production Signed**: Signed with a dedicated RSA-2048 production certificate using Android V1 + V2 APK Signature scheme.
-          files: app/build/outputs/apk/release/Regain-Pro-v1.0.1.apk
+            ### What's New in this Build:
+            - **Pixel-Perfect UI Redesign**: Accurately recreated from official Regain Pro interface screens (Focus, Schedule, Groups, Blocks).
+            - **Strict App Restrictor**: Fixed focus sessions to strictly block YouTube, Chrome, Instagram, games, and all user-classified distracting apps with an un-bypassable alert popup.
+            - **Integrated Digital Wellbeing**: Productive vs Distracting screen time breakdown with interactive daily focus ratio charts.
+            - **Smart App Categorization**: Allows the user to classify any app as Distracting, Productive, or Neutral.
+            - **Post-Login Permission Onboarding**: Guides the user through enabling Screen Time Access (Usage Access) & Regain Blocker (Accessibility).
+            - **Brand App Icon**: Packaged with the official gold 'R' `logo.png` across all mipmap densities.
+            - **Security & Privacy**: All API keys and Supabase credentials kept completely invisible.
+          files: app/build/outputs/apk/release/Regain-Pro-v1.0.2.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

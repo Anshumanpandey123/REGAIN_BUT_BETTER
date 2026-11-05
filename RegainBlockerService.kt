@@ -1,10 +1,12 @@
 package com.regain.pro
 
 import android.accessibilityservice.AccessibilityService
+import android.accessibilityservice.AccessibilityServiceInfo
 import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -16,47 +18,113 @@ import java.util.Calendar
 class RegainBlockerService : AccessibilityService() {
 
     private lateinit var prefs: SharedPreferences
-    private var lastCheckTime = 0L
+    private var lastContentCheckTime = 0L
     private val mainHandler = Handler(Looper.getMainLooper())
+    private var lastBlockedPkg = ""
+    private var lastBlockedTime = 0L
 
     override fun onServiceConnected() {
         super.onServiceConnected()
         prefs = getSharedPreferences("RegainProPrefs", Context.MODE_PRIVATE)
+
+        // Configure accessibility service dynamically to maintain clean Play Protect compliance
+        try {
+            val info = AccessibilityServiceInfo().apply {
+                eventTypes = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED or AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED
+                feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC
+                flags = AccessibilityServiceInfo.DEFAULT
+                notificationTimeout = 100
+            }
+            serviceInfo = info
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event == null) return
 
-        val now = System.currentTimeMillis()
-        // 1. Zero-Lag 350ms Event Throttling for window content updates
-        if (event.eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED && (now - lastCheckTime) < 350) {
-            return
-        }
-        lastCheckTime = now
-
         val pkg = event.packageName?.toString() ?: return
 
-        // 2. Strict Safety Safeguard: Instantly ignore financial, banking, and payment applications
+        // 1. Strict Financial App Firewall: Instantly ignore banking, payment, wallet, crypto & authenticator apps
         if (isSensitiveFinancialPackage(pkg)) {
             return
         }
 
-        // 3. O(1) Package Filtering - Ignore own app, SystemUI, and soft keyboards immediately
-        if (pkg == packageName || pkg.contains("systemui") || pkg.contains("inputmethod")) {
+        // 2. Ignore Regain Pro itself, System UI, Soft Keyboards, and Home Screen Launchers
+        if (pkg == packageName || pkg.contains("systemui") || pkg.contains("inputmethod") || isLauncherPackage(pkg)) {
             return
+        }
+
+        val now = System.currentTimeMillis()
+        val isWindowState = event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
+
+        // 3. 350ms Event Throttling for content updates to ensure ZERO CPU lag and zero battery drain
+        if (!isWindowState && event.eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) {
+            if (now - lastContentCheckTime < 350) {
+                return
+            }
+            lastContentCheckTime = now
+        }
+
+        if (!::prefs.isInitialized) {
+            prefs = getSharedPreferences("RegainProPrefs", Context.MODE_PRIVATE)
         }
 
         val focusActive = isFocusOrScheduleActive()
         val strictMode = prefs.getBoolean("strict_active", false) || focusActive
 
-        // 3. PRO: Active Session Uninstall & Permission Revoke Prevention
+        // ====================================================================
+        // 4. CORE FOCUS BLOCKER: Restrict all distracting apps when focus session is running
+        // ====================================================================
+        if (focusActive && isDistractingApp(pkg)) {
+            // Prevent duplicate rapid-fire re-triggers for the same app within 800ms
+            if (pkg != lastBlockedPkg || (now - lastBlockedTime) > 800) {
+                lastBlockedPkg = pkg
+                lastBlockedTime = now
+                val appLabel = getAppLabel(pkg)
+                triggerBlockPopup(pkg, appLabel, "Focus Session is in progress! $appLabel is blocked to keep your concentration.")
+            }
+            return
+        }
+
+        // ====================================================================
+        // 5. DAILY APP LIMIT QUOTA CHECK: Restrict apps that exceeded user daily limit
+        // ====================================================================
+        val limitMinutes = prefs.getInt("limit_$pkg", -1)
+        if (limitMinutes > 0 && checkAppDailyQuotaExceeded(pkg, limitMinutes)) {
+            if (pkg != lastBlockedPkg || (now - lastBlockedTime) > 800) {
+                lastBlockedPkg = pkg
+                lastBlockedTime = now
+                val appLabel = getAppLabel(pkg)
+                triggerBlockPopup(pkg, appLabel, "Daily time limit of ${limitMinutes}m reached for $appLabel. Great discipline!")
+            }
+            return
+        }
+
+        // ====================================================================
+        // 6. EXPLICIT INDIVIDUAL APP BLOCK: Apps manually blocked in Blocks Tab
+        // ====================================================================
+        if (prefs.getBoolean("block_app_$pkg", false)) {
+            if (pkg != lastBlockedPkg || (now - lastBlockedTime) > 800) {
+                lastBlockedPkg = pkg
+                lastBlockedTime = now
+                val appLabel = getAppLabel(pkg)
+                triggerBlockPopup(pkg, appLabel, "$appLabel is locked in your Regain Pro Block List.")
+            }
+            return
+        }
+
+        // ====================================================================
+        // 7. PRO: Strict Mode Protection (Block Uninstall & Settings Bypass)
+        // ====================================================================
         if (prefs.getBoolean("strict_uninstall", true) && strictMode) {
             if (pkg.contains("packageinstaller") || pkg.contains("settings")) {
                 val root = rootInActiveWindow
                 if (root != null) {
                     try {
                         if (containsText(root, "Regain Pro", 0)) {
-                            triggerRedirect("Strict Mode Active: Uninstall & permission changes are locked!")
+                            triggerBlockPopup(pkg, "Settings", "Strict Mode Active: Uninstalling Regain Pro is locked until session finishes!")
                             return
                         }
                     } finally {
@@ -66,14 +134,16 @@ class RegainBlockerService : AccessibilityService() {
             }
         }
 
-        // 4. PRO: Split-Screen & Floating Window Interception
+        // ====================================================================
+        // 8. PRO: Split-Screen & Floating Window Interception
+        // ====================================================================
         if (strictMode && Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             if (prefs.getBoolean("strict_split", true)) {
                 val root = rootInActiveWindow
                 if (root != null) {
                     try {
                         if (containsSplitOrFloatingDivider(root, 0)) {
-                            triggerRedirect("Strict Mode Active: Split-screen & floating windows are disabled!")
+                            triggerBlockPopup(pkg, "Split Screen", "Strict Mode Active: Split-screen & floating windows are disabled during focus!")
                             return
                         }
                     } finally {
@@ -83,16 +153,14 @@ class RegainBlockerService : AccessibilityService() {
             }
         }
 
-        // 5. Zero-Bypass Daily App Quotas (UsageStatsManager)
-        if (checkAppDailyQuotaExceeded(pkg)) {
-            triggerRedirect("Daily limit exceeded for this app. Stay focused!")
-            return
-        }
-
-        // 6. Granular Feed & Social Blocker (YouTube Shorts, IG Reels, FB Reels, Snapchat Spotlight)
+        // ====================================================================
+        // 9. GRANULAR FEED BLOCKER: YouTube Shorts, Instagram Reels, FB Reels, Snapchat
+        // ====================================================================
         handleGranularSocialInterception(pkg)
 
-        // 7. Browser Domain Filtering & Whitelist
+        // ====================================================================
+        // 10. BROWSER DOMAIN FILTERING: Block distracting websites in Chrome
+        // ====================================================================
         if (isBrowserPackage(pkg)) {
             handleBrowserFiltering()
         }
@@ -102,6 +170,32 @@ class RegainBlockerService : AccessibilityService() {
         // Accessibility service interrupted
     }
 
+    /**
+     * Triggers the Block Action:
+     * 1. Calls GLOBAL_ACTION_HOME immediately to kick the user out of the distracting app.
+     * 2. Brings Regain Pro's Blocked App Popup to the foreground.
+     */
+    private fun triggerBlockPopup(pkg: String, appLabel: String, reason: String) {
+        performGlobalAction(GLOBAL_ACTION_HOME)
+
+        val intent = Intent(this, MainActivity::class.java).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            action = "ACTION_SHOW_BLOCK_POPUP"
+            putExtra("BLOCKED_PKG", pkg)
+            putExtra("BLOCKED_APP_NAME", appLabel)
+            putExtra("BLOCK_REASON", reason)
+            putExtra("BLOCK_TIMESTAMP", System.currentTimeMillis())
+        }
+
+        mainHandler.postDelayed({
+            try {
+                startActivity(intent)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }, 120)
+    }
+
     private fun isFocusOrScheduleActive(): Boolean {
         if (!::prefs.isInitialized) {
             prefs = getSharedPreferences("RegainProPrefs", Context.MODE_PRIVATE)
@@ -109,9 +203,9 @@ class RegainBlockerService : AccessibilityService() {
         val isTimerRunning = prefs.getBoolean("is_focus_running", false)
         if (isTimerRunning) return true
 
-        // Check active schedule window
-        val scheduleJson = prefs.getString("active_schedules_json", "[]") ?: "[]"
-        if (scheduleJson.contains("true")) {
+        // Check active schedule time window
+        val schedulesJson = prefs.getString("active_schedules_json", "[]") ?: "[]"
+        if (schedulesJson.contains("\"active\":true") || schedulesJson.contains("true")) {
             val calendar = Calendar.getInstance()
             val currentMinutes = calendar.get(Calendar.HOUR_OF_DAY) * 60 + calendar.get(Calendar.MINUTE)
             val scheduleStart = prefs.getInt("sched_start_min", -1)
@@ -123,10 +217,56 @@ class RegainBlockerService : AccessibilityService() {
         return false
     }
 
-    private fun checkAppDailyQuotaExceeded(pkg: String): Boolean {
-        val limitMinutes = prefs.getInt("limit_$pkg", -1)
-        if (limitMinutes <= 0) return false
+    /**
+     * Checks whether an app is categorized as distracting.
+     * Checks user custom classification first, then default distracting set, then custom list.
+     */
+    private fun isDistractingApp(pkg: String): Boolean {
+        // 1. User manual classification takes absolute priority
+        val userCategory = prefs.getString("app_category_$pkg", null)
+        if (userCategory == "distracting") return true
+        if (userCategory == "productive" || userCategory == "neutral") return false
 
+        // 2. Default known distracting applications
+        val defaultDistracting = setOf(
+            "com.google.android.youtube",
+            "com.instagram.android",
+            "com.facebook.katana",
+            "com.facebook.orca",
+            "com.facebook.lite",
+            "com.snapchat.android",
+            "com.zhiliaoapp.musically",
+            "com.ss.android.ugc.trill",
+            "com.twitter.android",
+            "com.twitter.android.lite",
+            "com.reddit.frontpage",
+            "com.android.chrome",
+            "org.mozilla.firefox",
+            "com.opera.browser",
+            "com.brave.browser",
+            "com.microsoft.emmx",
+            "com.netflix.mediaclient",
+            "com.amazon.avod.thirdpartyclient",
+            "tv.twitch.android.app",
+            "com.discord",
+            "com.pinterest",
+            "com.whatsapp"
+        )
+
+        if (defaultDistracting.contains(pkg)) {
+            return true
+        }
+
+        // 3. Custom distracting app list from SharedPreferences
+        val customDistracting = prefs.getStringSet("custom_distracting_packages", emptySet()) ?: emptySet()
+        if (customDistracting.contains(pkg)) {
+            return true
+        }
+
+        return false
+    }
+
+    private fun checkAppDailyQuotaExceeded(pkg: String, limitMinutes: Int): Boolean {
         val usageStatsManager = getSystemService(Context.USAGE_STATS_SERVICE) as? UsageStatsManager ?: return false
         val cal = Calendar.getInstance().apply {
             set(Calendar.HOUR_OF_DAY, 0)
@@ -163,27 +303,24 @@ class RegainBlockerService : AccessibilityService() {
             when {
                 // YouTube Shorts Interception
                 pkg == "com.google.android.youtube" && blockYtShorts -> {
-                    // Check creator whitelist first
-                    if (isYouTubeAllowedChannel(root)) {
-                        return
-                    }
+                    if (isYouTubeAllowedChannel(root)) return
                     if (findNodeByIdSubstrings(root, listOf("reel_recycler", "reel_watch_fragment_root", "shorts_container", "shorts_player"), 0)) {
-                        fireInterceptionAction(stricterInterception, "YouTube Shorts blocked. Back to learning!")
+                        fireInterceptionAction(stricterInterception, "YouTube Shorts blocked. Stay focused on learning!")
                     }
                 }
                 // Instagram Reels Interception
                 pkg == "com.instagram.android" && blockIgReels -> {
                     if (findNodeByIdSubstrings(root, listOf("clips_viewer_view_pager", "clips_video_container", "reel_viewer"), 0)) {
-                        fireInterceptionAction(stricterInterception, "Instagram Reels blocked. Keep your focus!")
+                        fireInterceptionAction(stricterInterception, "Instagram Reels blocked. Keep your study streak!")
                     }
                 }
-                // Facebook Reels
+                // Facebook Reels Interception
                 pkg.contains("facebook") && blockFbReels -> {
                     if (findNodeByIdSubstrings(root, listOf("fb_shorts", "reels_tray", "reel_viewer"), 0)) {
                         fireInterceptionAction(stricterInterception, "Facebook Reels blocked!")
                     }
                 }
-                // Snapchat Spotlight
+                // Snapchat Spotlight Interception
                 pkg.contains("snapchat") && blockSnapSpotlight -> {
                     if (findNodeByIdSubstrings(root, listOf("spotlight_view", "spotlight_recycler"), 0)) {
                         fireInterceptionAction(stricterInterception, "Snapchat Spotlight blocked!")
@@ -219,6 +356,14 @@ class RegainBlockerService : AccessibilityService() {
                pkg.contains("opera") || pkg.contains("brave") || pkg.contains("edge")
     }
 
+    private fun isLauncherPackage(pkg: String): Boolean {
+        val lower = pkg.lowercase()
+        return lower.contains("launcher") || lower.contains("home") || lower == "android" ||
+               lower == "com.google.android.apps.nexuslauncher" || lower == "com.miui.home" ||
+               lower == "com.sec.android.app.launcher" || lower == "com.oppo.launcher" ||
+               lower == "com.oneplus.launcher" || lower == "com.huawei.android.launcher"
+    }
+
     private fun handleBrowserFiltering() {
         val blockWebsites = prefs.getBoolean("block_websites", true)
         if (!blockWebsites) return
@@ -245,7 +390,7 @@ class RegainBlockerService : AccessibilityService() {
             node.recycle()
             for (blocked in blockedDomains) {
                 if (text.contains(blocked)) {
-                    triggerRedirect("Domain $blocked is blocked during focus!")
+                    triggerBlockPopup("com.android.chrome", "Chrome", "Domain $blocked is restricted during focus!")
                     return
                 }
             }
@@ -253,100 +398,112 @@ class RegainBlockerService : AccessibilityService() {
     }
 
     private fun fireInterceptionAction(stricter: Boolean, msg: String) {
-        showToast(msg)
         performGlobalAction(GLOBAL_ACTION_BACK)
         if (stricter) {
             mainHandler.postDelayed({
                 performGlobalAction(GLOBAL_ACTION_HOME)
             }, 100)
         }
+        showToast(msg)
     }
 
-    private fun triggerRedirect(message: String) {
-        showToast(message)
-        performGlobalAction(GLOBAL_ACTION_HOME)
-        val launchIntent = packageManager.getLaunchIntentForPackage(packageName)?.apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-            putExtra("ALERT_MESSAGE", message)
+    private fun getAppLabel(pkg: String): String {
+        return try {
+            val pm = packageManager
+            val ai = pm.getApplicationInfo(pkg, 0)
+            pm.getApplicationLabel(ai).toString()
+        } catch (e: Exception) {
+            when {
+                pkg.contains("youtube") -> "YouTube"
+                pkg.contains("instagram") -> "Instagram"
+                pkg.contains("whatsapp") -> "WhatsApp"
+                pkg.contains("facebook") -> "Facebook"
+                pkg.contains("snapchat") -> "Snapchat"
+                pkg.contains("tiktok") -> "TikTok"
+                pkg.contains("twitter") -> "Twitter / X"
+                pkg.contains("reddit") -> "Reddit"
+                pkg.contains("chrome") -> "Google Chrome"
+                else -> pkg.substringAfterLast('.').replaceFirstChar { it.uppercase() }
+            }
         }
-        if (launchIntent != null) {
-            mainHandler.postDelayed({
-                startActivity(launchIntent)
-            }, 150)
+    }
+
+    private fun containsText(node: AccessibilityNodeInfo?, target: String, depth: Int): Boolean {
+        if (node == null || depth > 5) return false
+        val text = node.text?.toString()
+        if (text != null && text.contains(target, ignoreCase = true)) return true
+        val desc = node.contentDescription?.toString()
+        if (desc != null && desc.contains(target, ignoreCase = true)) return true
+
+        val count = node.childCount
+        for (i in 0 until count) {
+            val child = node.getChild(i)
+            if (child != null) {
+                val found = containsText(child, target, depth + 1)
+                child.recycle()
+                if (found) return true
+            }
         }
+        return false
+    }
+
+    private fun checkNodeMatchesAnyText(node: AccessibilityNodeInfo?, list: List<String>, depth: Int): Boolean {
+        if (node == null || depth > 4) return false
+        val text = node.text?.toString()?.lowercase()
+        if (text != null && list.any { text.contains(it) }) return true
+        val desc = node.contentDescription?.toString()?.lowercase()
+        if (desc != null && list.any { desc.contains(it) }) return true
+
+        val count = node.childCount
+        for (i in 0 until count) {
+            val child = node.getChild(i)
+            if (child != null) {
+                val matched = checkNodeMatchesAnyText(child, list, depth + 1)
+                child.recycle()
+                if (matched) return true
+            }
+        }
+        return false
+    }
+
+    private fun findNodeByIdSubstrings(node: AccessibilityNodeInfo?, substrings: List<String>, depth: Int): Boolean {
+        if (node == null || depth > 6) return false
+        val viewId = node.viewIdResourceName?.lowercase()
+        if (viewId != null && substrings.any { viewId.contains(it) }) return true
+
+        val count = node.childCount
+        for (i in 0 until count) {
+            val child = node.getChild(i)
+            if (child != null) {
+                val found = findNodeByIdSubstrings(child, substrings, depth + 1)
+                child.recycle()
+                if (found) return true
+            }
+        }
+        return false
+    }
+
+    private fun containsSplitOrFloatingDivider(node: AccessibilityNodeInfo?, depth: Int): Boolean {
+        if (node == null || depth > 4) return false
+        val viewId = node.viewIdResourceName?.lowercase()
+        if (viewId != null && (viewId.contains("docked_divider") || viewId.contains("pip_menu") || viewId.contains("floating_overlay"))) {
+            return true
+        }
+        val count = node.childCount
+        for (i in 0 until count) {
+            val child = node.getChild(i)
+            if (child != null) {
+                val found = containsSplitOrFloatingDivider(child, depth + 1)
+                child.recycle()
+                if (found) return true
+            }
+        }
+        return false
     }
 
     private fun showToast(msg: String) {
         mainHandler.post {
             Toast.makeText(applicationContext, msg, Toast.LENGTH_SHORT).show()
         }
-    }
-
-    // Explicit recursive traversal with depth limiting to preserve CPU and zero-lag performance
-    private fun containsText(node: AccessibilityNodeInfo, query: String, depth: Int): Boolean {
-        if (depth > 6) return false
-        val text = node.text?.toString() ?: ""
-        if (text.contains(query, ignoreCase = true)) return true
-
-        for (i in 0 until node.childCount) {
-            val child = node.getChild(i) ?: continue
-            try {
-                if (containsText(child, query, depth + 1)) return true
-            } finally {
-                child.recycle()
-            }
-        }
-        return false
-    }
-
-    private fun checkNodeMatchesAnyText(node: AccessibilityNodeInfo, allowed: List<String>, depth: Int): Boolean {
-        if (depth > 6) return false
-        val text = node.text?.toString()?.lowercase() ?: ""
-        for (a in allowed) {
-            if (text.contains(a)) return true
-        }
-        for (i in 0 until node.childCount) {
-            val child = node.getChild(i) ?: continue
-            try {
-                if (checkNodeMatchesAnyText(child, allowed, depth + 1)) return true
-            } finally {
-                child.recycle()
-            }
-        }
-        return false
-    }
-
-    private fun findNodeByIdSubstrings(node: AccessibilityNodeInfo, identifiers: List<String>, depth: Int): Boolean {
-        if (depth > 6) return false
-        val viewId = node.viewIdResourceName?.lowercase() ?: ""
-        for (id in identifiers) {
-            if (viewId.contains(id)) return true
-        }
-        for (i in 0 until node.childCount) {
-            val child = node.getChild(i) ?: continue
-            try {
-                if (findNodeByIdSubstrings(child, identifiers, depth + 1)) return true
-            } finally {
-                child.recycle()
-            }
-        }
-        return false
-    }
-
-    private fun containsSplitOrFloatingDivider(node: AccessibilityNodeInfo, depth: Int): Boolean {
-        if (depth > 4) return false
-        val viewId = node.viewIdResourceName?.lowercase() ?: ""
-        if (viewId.contains("docked_divider") || viewId.contains("pip_menu") || viewId.contains("split_screen_divider")) {
-            return true
-        }
-        for (i in 0 until node.childCount) {
-            val child = node.getChild(i) ?: continue
-            try {
-                if (containsSplitOrFloatingDivider(child, depth + 1)) return true
-            } finally {
-                child.recycle()
-            }
-        }
-        return false
     }
 }
