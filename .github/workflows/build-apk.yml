@@ -32,6 +32,11 @@ jobs:
           cp MainActivity.kt app/src/main/java/com/regain/pro/MainActivity.kt
           cp RegainBlockerService.kt app/src/main/java/com/regain/pro/RegainBlockerService.kt
 
+          cat << 'EOF' > gradle.properties
+          android.useAndroidX=true
+          android.enableJetifier=true
+          EOF
+
           cat << 'EOF' > settings.gradle
           pluginManagement {
               repositories {
