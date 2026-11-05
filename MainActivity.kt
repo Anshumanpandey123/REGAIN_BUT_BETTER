@@ -93,6 +93,7 @@ class MainActivity : AppCompatActivity() {
                 .putString("yt_whitelist_channels", "Khan Academy,3Blue1Brown,Veritasium,MIT OpenCourseWare,Lex Fridman")
                 .putString("blocked_domains", "twitter.com,x.com,tiktok.com,instagram.com,reddit.com")
                 .putString("supabase_url", "https://rvvpugklbrdnfayckhhx.supabase.co")
+                .putString("supabase_key", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ2dnB1Z2tsYnJkbmZheWNraGh4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTM4NzA1OTcsImV4cCI6MjEwOTQ0NjU5N30.Nm5oozpjiGiFYbxXHbt9iP7KMLaA9kFt680BGF353qU")
                 .apply()
         }
     }
@@ -237,7 +238,7 @@ class MainActivity : AppCompatActivity() {
         fun getSupabaseConfig(): String {
             val json = JSONObject()
             json.put("url", prefs.getString("supabase_url", "https://rvvpugklbrdnfayckhhx.supabase.co"))
-            json.put("key", prefs.getString("supabase_key", ""))
+            json.put("key", prefs.getString("supabase_key", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ2dnB1Z2tsYnJkbmZheWNraGh4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTM4NzA1OTcsImV4cCI6MjEwOTQ0NjU5N30.Nm5oozpjiGiFYbxXHbt9iP7KMLaA9kFt680BGF353qU"))
             return json.toString()
         }
 
@@ -1311,7 +1312,7 @@ class MainActivity : AppCompatActivity() {
       <label style="font-size:11px; color:var(--text-muted); font-weight:600;">SUPABASE URL</label>
       <input id="sbUrlInput" class="input-field" value="https://rvvpugklbrdnfayckhhx.supabase.co" />
       <label style="font-size:11px; color:var(--text-muted); font-weight:600;">SUPABASE ANON PUBLIC KEY</label>
-      <input id="sbKeyInput" class="input-field" placeholder="eyJhbGciOiJIUzI1NiIsIn..." />
+      <input id="sbKeyInput" class="input-field" value="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ2dnB1Z2tsYnJkbmZheWNraGh4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTM4NzA1OTcsImV4cCI6MjEwOTQ0NjU5N30.Nm5oozpjiGiFYbxXHbt9iP7KMLaA9kFt680BGF353qU" />
       <button class="btn-primary" onclick="saveSupabaseSettings()">Save & Connect</button>
     </div>
   </div>
@@ -1331,7 +1332,7 @@ class MainActivity : AppCompatActivity() {
     saveSchedules: (s) => console.log('Saved schedules:', s),
     getSchedules: () => "[]",
     saveSupabaseConfig: (u, k) => console.log('Saved Supabase config'),
-    getSupabaseConfig: () => JSON.stringify({ url: "https://rvvpugklbrdnfayckhhx.supabase.co", key: "" }),
+    getSupabaseConfig: () => JSON.stringify({ url: "https://rvvpugklbrdnfayckhhx.supabase.co", key: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ2dnB1Z2tsYnJkbmZheWNraGh4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTM4NzA1OTcsImV4cCI6MjEwOTQ0NjU5N30.Nm5oozpjiGiFYbxXHbt9iP7KMLaA9kFt680BGF353qU" }),
     openExternalBrowser: (u) => window.open(u, '_blank'),
     saveAuthSession: (s) => localStorage.setItem('regain_auth_session', s),
     getAuthSession: () => localStorage.getItem('regain_auth_session') || '',
