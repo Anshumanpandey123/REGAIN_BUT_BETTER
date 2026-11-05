@@ -1,4 +1,4 @@
-package com.regain.pro
+package com.regainpro.personal
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
@@ -172,28 +172,22 @@ class RegainBlockerService : AccessibilityService() {
 
     /**
      * Triggers the Block Action:
-     * 1. Calls GLOBAL_ACTION_HOME immediately to kick the user out of the distracting app.
-     * 2. Brings Regain Pro's Blocked App Popup to the foreground.
+     * Directly launches BlockOverlayActivity on top of the distracting app.
+     * The overlay blocks access to the app and presents the countdown timer.
      */
     private fun triggerBlockPopup(pkg: String, appLabel: String, reason: String) {
-        performGlobalAction(GLOBAL_ACTION_HOME)
-
-        val intent = Intent(this, MainActivity::class.java).apply {
+        val intent = Intent(this, BlockOverlayActivity::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-            action = "ACTION_SHOW_BLOCK_POPUP"
             putExtra("BLOCKED_PKG", pkg)
             putExtra("BLOCKED_APP_NAME", appLabel)
             putExtra("BLOCK_REASON", reason)
             putExtra("BLOCK_TIMESTAMP", System.currentTimeMillis())
         }
-
-        mainHandler.postDelayed({
-            try {
-                startActivity(intent)
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-        }, 120)
+        try {
+            startActivity(intent)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
 
     private fun isFocusOrScheduleActive(): Boolean {
@@ -222,6 +216,12 @@ class RegainBlockerService : AccessibilityService() {
      * Checks user custom classification first, then default distracting set, then custom list.
      */
     private fun isDistractingApp(pkg: String): Boolean {
+        // 0. If user explicitly selected apps to block for this active focus session
+        val sessionBlocked = prefs.getStringSet("session_blocked_packages", emptySet()) ?: emptySet()
+        if (sessionBlocked.isNotEmpty()) {
+            return sessionBlocked.contains(pkg)
+        }
+
         // 1. User manual classification takes absolute priority
         val userCategory = prefs.getString("app_category_$pkg", null)
         if (userCategory == "distracting") return true

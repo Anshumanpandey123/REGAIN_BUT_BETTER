@@ -28,13 +28,14 @@ jobs:
 
       - name: Scaffold Android Project Structure Automatically
         run: |
-          mkdir -p app/src/main/java/com/regain/pro
+          mkdir -p app/src/main/java/com/regainpro/personal
           mkdir -p app/src/main/res/xml
           mkdir -p app/src/main/res/values
           mkdir -p app/src/main/res/drawable
 
-          cp MainActivity.kt app/src/main/java/com/regain/pro/MainActivity.kt
-          cp RegainBlockerService.kt app/src/main/java/com/regain/pro/RegainBlockerService.kt
+          cp MainActivity.kt app/src/main/java/com/regainpro/personal/MainActivity.kt
+          cp RegainBlockerService.kt app/src/main/java/com/regainpro/personal/RegainBlockerService.kt
+          cp BlockOverlayActivity.kt app/src/main/java/com/regainpro/personal/BlockOverlayActivity.kt
 
           # Package companion web application into Android Assets
           mkdir -p app/src/main/assets
@@ -80,7 +81,7 @@ jobs:
           EOF
 
           # Generate dedicated RSA-2048 production signing keystore
-          keytool -genkey -v -keystore app/release.jks -alias regainpro -keyalg RSA -keysize 2048 -validity 10000 -storepass regainpro2026 -keypass regainpro2026 -dname "CN=Regain Pro, OU=Digital Wellness, O=Regain Inc, L=San Francisco, ST=California, C=US"
+          keytool -genkey -v -keystore app/release.jks -alias regainpro -keyalg RSA -keysize 2048 -validity 10000 -storepass regainpro2026 -keypass regainpro2026 -dname "CN=Regain Personal Pro, OU=Digital Wellbeing, O=Regain Personal, L=San Francisco, ST=California, C=US"
 
           cat << 'EOF' > app/build.gradle
           plugins {
@@ -89,15 +90,15 @@ jobs:
           }
 
           android {
-              namespace 'com.regain.pro'
+              namespace 'com.regainpro.personal'
               compileSdk 34
 
               defaultConfig {
-                  applicationId "com.regain.pro"
+                  applicationId "com.regainpro.personal"
                   minSdk 24
                   targetSdk 34
-                  versionCode 3
-                  versionName "1.0.2-PRO"
+                  versionCode 4
+                  versionName "1.0.3-PRO"
               }
 
               signingConfigs {
@@ -155,7 +156,7 @@ jobs:
           cat << 'EOF' > app/src/main/res/values/strings.xml
           <resources>
               <string name="app_name">Regain Pro</string>
-              <string name="accessibility_service_description">Regain Pro intelligent anti-distraction shield. Enforces reels/shorts blocking, study limits, and app focus timers.</string>
+              <string name="accessibility_service_description">Regain Pro intelligent anti-distraction shield. Shows study overlay over selected distracting apps during active focus sessions to help you maintain concentration.</string>
           </resources>
           EOF
 
@@ -181,11 +182,13 @@ jobs:
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android"
               xmlns:tools="http://schemas.android.com/tools"
-              package="com.regain.pro">
+              package="com.regainpro.personal">
 
               <uses-permission android:name="android.permission.INTERNET" />
               <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS"
                   tools:ignore="ProtectedPermissions" />
+              <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+              <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
               <application
                   android:allowBackup="false"
@@ -213,6 +216,14 @@ jobs:
                       </intent-filter>
                   </activity>
 
+                  <!-- Direct Over-the-App Focus Lockout Activity -->
+                  <activity
+                      android:name=".BlockOverlayActivity"
+                      android:exported="false"
+                      android:excludeFromRecents="true"
+                      android:launchMode="singleTask"
+                      android:theme="@style/Theme.RegainPro" />
+
                   <service
                       android:name=".RegainBlockerService"
                       android:exported="false"
@@ -232,30 +243,34 @@ jobs:
         run: gradle assembleRelease --stacktrace
 
       - name: Rename Release APK
-        run: cp app/build/outputs/apk/release/app-release.apk app/build/outputs/apk/release/Regain-Pro-v1.0.2.apk
+        run: cp app/build/outputs/apk/release/app-release.apk app/build/outputs/apk/release/Regain-Pro-v1.0.3.apk
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: Regain-Personal-Pro-APK
-          path: app/build/outputs/apk/release/Regain-Pro-v1.0.2.apk
+          path: app/build/outputs/apk/release/Regain-Pro-v1.0.3.apk
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.0.2
-          name: "Regain Pro v1.0.2 — Full UI Overhaul & Strict App Restrictor"
+          tag_name: v1.0.3
+          name: "Regain Pro v1.0.3 — Over-the-App Shield, Google OAuth & Digital Wellbeing UI"
           body: |
-            ## 🦁 Regain Pro v1.0.2 Release
+            ## 🦁 Regain Pro v1.0.3 Release
 
             ### What's New in this Build:
-            - **Pixel-Perfect UI Redesign**: Accurately recreated from official Regain Pro interface screens (Focus, Schedule, Groups, Blocks).
-            - **Strict App Restrictor**: Fixed focus sessions to strictly block YouTube, Chrome, Instagram, games, and all user-classified distracting apps with an un-bypassable alert popup.
-            - **Integrated Digital Wellbeing**: Productive vs Distracting screen time breakdown with interactive daily focus ratio charts.
-            - **Smart App Categorization**: Allows the user to classify any app as Distracting, Productive, or Neutral.
-            - **Post-Login Permission Onboarding**: Guides the user through enabling Screen Time Access (Usage Access) & Regain Blocker (Accessibility).
-            - **Brand App Icon**: Packaged with the official gold 'R' `logo.png` across all mipmap densities.
-            - **Security & Privacy**: All API keys and Supabase credentials kept completely invisible.
-          files: app/build/outputs/apk/release/Regain-Pro-v1.0.2.apk
+            - **Seamless Google OAuth (Supabase)**: Real Google sign-in redirecting via browser and returning to `regainpro://auth-callback` with zero credentials exposed in UI.
+            - **No-Scroll Focus Screen**: Constrained layout so all elements on the Focus home screen fit without scrolling.
+            - **Play Protect Safety**: Package identifier switched to `com.regainpro.personal` with dedicated keystore and transparent accessibility service declarations to eliminate false-positive counterfeit warnings.
+            - **4-Point Permission Shield**: Interactive onboarding modal covering Usage Access, Accessibility Blocker, Notification Access, and Battery Optimization Exemptions.
+            - **Direct Over-the-App Blocker**: `BlockOverlayActivity` opens immediately on top of blocked apps (YouTube, Chrome, etc.) with countdown timer and locked back-navigation to home launcher.
+            - **Pixel-Accurate Digital Wellbeing UI**:
+              - Top Card with 4h 18m screen time, 20% reduction pill, and 82 Mindful Score gauge.
+              - Bottom Card with Day/Week/Month tabs, 7-day stacked bar chart (Productive `#8BC390`, Distracting `#E09F7D`, Neutral `#6C8577`), and active day dot indicator.
+              - App classification with real Base64 app icons and dropdown `<select>` menus.
+            - **Focus Session Setup Modal**: Configure custom time, toggle strict mode, and select exact apps to restrict prior to launching focus timers.
+            - **Unified Obsidian Aesthetic**: Cohesive dark obsidian theme (`#0B0E0B`, emerald `#5CE63C`, gold `#E8B931`) across all screens.
+          files: app/build/outputs/apk/release/Regain-Pro-v1.0.3.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
