@@ -36,6 +36,10 @@ jobs:
           cp MainActivity.kt app/src/main/java/com/regain/pro/MainActivity.kt
           cp RegainBlockerService.kt app/src/main/java/com/regain/pro/RegainBlockerService.kt
 
+          # Package companion web application into Android Assets
+          mkdir -p app/src/main/assets
+          cp index.html app/src/main/assets/index.html
+
           # Copy true PNG mipmap icons & drawable
           if [ -d res ]; then
             cp -r res/* app/src/main/res/
