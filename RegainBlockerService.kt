@@ -36,7 +36,12 @@ class RegainBlockerService : AccessibilityService() {
 
         val pkg = event.packageName?.toString() ?: return
 
-        // 2. O(1) Package Filtering - Ignore own app, SystemUI, and soft keyboards immediately
+        // 2. Strict Safety Safeguard: Instantly ignore financial, banking, and payment applications
+        if (isSensitiveFinancialPackage(pkg)) {
+            return
+        }
+
+        // 3. O(1) Package Filtering - Ignore own app, SystemUI, and soft keyboards immediately
         if (pkg == packageName || pkg.contains("systemui") || pkg.contains("inputmethod")) {
             return
         }
@@ -198,6 +203,15 @@ class RegainBlockerService : AccessibilityService() {
         if (channels.isEmpty()) return false
 
         return checkNodeMatchesAnyText(root, channels, 0)
+    }
+
+    private fun isSensitiveFinancialPackage(pkg: String): Boolean {
+        val lower = pkg.lowercase()
+        return lower.contains("bank") || lower.contains("pay") || lower.contains("wallet") ||
+               lower.contains("money") || lower.contains("credit") || lower.contains("crypto") ||
+               lower.contains("finance") || lower.contains("authenticator") || lower.contains("pass") ||
+               lower.contains("security") || lower.contains("card") || lower.contains("invest") ||
+               lower.contains("upi") || lower.contains("paypal")
     }
 
     private fun isBrowserPackage(pkg: String): Boolean {
